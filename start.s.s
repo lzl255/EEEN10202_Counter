@@ -42,6 +42,8 @@ LEFT_PB_PREV		equ 0x214
 LEFT_PB_NOW		equ 0x215
 RIGHT_PB_PREV		equ 0x216
 RIGHT_PB_NOW		equ 0x217
+SWITCHES_PREV		equ 0x218
+SWITCHES_NOW		equ 0x219
 
 PSECT resetVector, class=CODE, reloc=2
 resetVector:
@@ -74,13 +76,13 @@ ENDM
 
 inc_num:;(void) -> void
 	incf	RIGHT_DIGIT, a
-	movf	RIGHT_DIGIT, W, a
+	movf	RIGHT_DIGIT, w, a
 	sublw	10
 	bnz	_inc_num_end
 	; if RIGHT_DIGIT == 10
 		clrf	RIGHT_DIGIT, a
 		incf	LEFT_DIGIT, a
-		movf	LEFT_DIGIT, W, a
+		movf	LEFT_DIGIT, w, a
 		sublw	10
 		bnz	_inc_num_end
 		; if LEFT_DIGIT == 10
@@ -90,14 +92,14 @@ inc_num:;(void) -> void
 
 dec_num:;(void) -> void
 	decf	RIGHT_DIGIT, a
-	movf	RIGHT_DIGIT, W, a
+	movf	RIGHT_DIGIT, w, a
 	sublw	0xFF
 	bnz	_dec_num_end
 	; if RIGHT_DIGIT == 0xFF
 		movlw	9
 		movwf	RIGHT_DIGIT, a
 		decf	LEFT_DIGIT, a
-		movf	LEFT_DIGIT, W, a
+		movf	LEFT_DIGIT, w, a
 		sublw	0xFF
 		bnz	_dec_num_end
 		; if LEFT_DIGIT == 0xFF
@@ -110,7 +112,17 @@ num_to_digit:;(int) -> int
 	movwf	FSR0L, a
 	movlw	ARR_DIGITS
 	addwf	FSR0L, F, a
-	movf	INDF0, W, a
+	movf	INDF0, w, a
+	return
+
+num_to_bin:;(void) -> int
+	movf	LEFT_DIGIT, w, a
+	addwf	LEFT_DIGIT, w, a
+	addwf	LEFT_DIGIT, w, a
+	addwf	LEFT_DIGIT, w, a
+	addwf	LEFT_DIGIT, w, a
+	rlncf	WREG, w, a
+	addwf	RIGHT_DIGIT, w, a	
 	return
 
 delay:;(void) -> void
@@ -125,13 +137,13 @@ super_delay:;(void) -> void
 	return
 
 read_pb2:;(void) -> int
-	movf	PORTB, W, a
+	movf	PORTB, w, a
 	comf	WREG, a
 	andlw	0b00000001
 	return
 
 read_pb1:;(void) -> int
-	movf	PORTJ, W, a
+	movf	PORTJ, w, a
 	comf	WREG, a
 	andlw	0b00100000
 	return
@@ -143,9 +155,17 @@ start:
 	clrf	TRISF, a
 	bcf	TRISH, 0, a
 	bcf	TRISH, 1, a
-	;bcf	TRISA, 4, a
+	bcf	TRISA, 4, a
 	bsf	TRISB, 0, a
 	bsf	TRISJ, 5, a
+	bsf	TRISH, 4, a
+	bsf	TRISH, 5, a
+	bsf	TRISH, 6, a
+	bsf	TRISH, 7, a
+	bsf	TRISC, 2, a
+	bsf	TRISC, 3, a
+	bsf	TRISC, 4, a
+	bsf	TRISC, 5, a
 	
 	; digital input mode
 	movlw	0x0F
@@ -171,35 +191,62 @@ loop:
 	; RA4 -> Q3 (capacitor for LED bulbs)
 	; RB0 -> PB2 (left push button)
 	; RJ5 -> PB1 (right push button)
+	; RH4~RH7 -> Left 4 switches
+	; RC2~RC5 -> Right 4 switches
 	
 	; Left push button
 	call	read_pb2
 	movwf	LEFT_PB_NOW, a
-	subwf	LEFT_PB_PREV, W, a
-	bz	_left_pb_unchanged
+	subwf	LEFT_PB_PREV, w, a
+	bz	_left_pb_changed_end
 	; if LEFT_PB_NOW != LEFT_PB_PREV
-		movf	LEFT_PB_NOW, W, a	; LEFT_PB_PREV = LEFT_PB_NOW
+		movf	LEFT_PB_NOW, w, a	; LEFT_PB_PREV = LEFT_PB_NOW
 		movwf	LEFT_PB_PREV, a
-		bz	_left_pb_is_release	; only call dec_num on press, not release
+		bz	_left_pb_changed_end	; only call dec_num on press, not release
 		call	dec_num
-		_left_pb_is_release:
-	_left_pb_unchanged:
+	_left_pb_changed_end:
 	
 	; Right push button
 	call	read_pb1
 	movwf	RIGHT_PB_NOW, a
-	subwf	RIGHT_PB_PREV, W, a
-	bz	_right_pb_unchanged
+	subwf	RIGHT_PB_PREV, w, a
+	bz	_right_pb_changed_end
 	; if LEFT_PB_NOW != LEFT_PB_PREV
-		movf	RIGHT_PB_NOW, W, a	; LEFT_PB_PREV = LEFT_PB_NOW
+		movf	RIGHT_PB_NOW, w, a	; LEFT_PB_PREV = LEFT_PB_NOW
 		movwf	RIGHT_PB_PREV, a
-		bz	_right_pb_is_release	; only call inc_num on press, not release
+		bz	_right_pb_changed_end	; only call inc_num on press, not release
 		call	inc_num
-		_right_pb_is_release:
-	_right_pb_unchanged:
+	_right_pb_changed_end:
+	
+	; Switches
+	clrf	SWITCHES_NOW, a
+	movf	PORTH, w, a
+	andlw	0b11110000
+	iorwf	SWITCHES_NOW, a
+	movf	PORTC, w, a
+	andlw	0b00111100
+	rrncf	WREG, w, a
+	rrncf	WREG, w, a
+	iorwf	SWITCHES_NOW, a
+	movf	SWITCHES_NOW, w, a
+	subwf	SWITCHES_PREV, w, a
+	bz	_switches_changed_end
+	; if SWITCHES_NOW != SWITCHES_PREV
+		movf	SWITCHES_NOW, w, a	; SWITCHES_PREV = SWITCHES_NOW
+		movwf	SWITCHES_PREV, a
+		movlw	0
+		iorwf	LEFT_DIGIT, w, a
+		iorwf	RIGHT_DIGIT, w, a
+		bz	_switches_changed_end	; skip animation if already zero
+		clrf	LEFT_DIGIT, a
+		clrf	RIGHT_DIGIT, a
+		call	super_delay		; some fun animations
+		call	super_delay
+		call	super_delay
+	_switches_changed_end:
 	
 	; Left 7-segment display
-	movf	LEFT_DIGIT, W, a	; LATF = num_to_digit(LEFT_DIGIT)
+	movf	LEFT_DIGIT, w, a	; LATF = num_to_digit(LEFT_DIGIT)
 	call	num_to_digit
 	movwf	LATF, a
 	bcf	LATH, 1, a		; Toggle Q2
@@ -207,12 +254,19 @@ loop:
 	bsf	LATH, 1, a
 	
 	; Right 7-segment display
-	movf	RIGHT_DIGIT, W, a	; LATF = num_to_digit(RIGHT_DIGIT)
+	movf	RIGHT_DIGIT, w, a	; LATF = num_to_digit(RIGHT_DIGIT)
 	call	num_to_digit
 	movwf	LATF, a
 	bcf	LATH, 0, a		; Toggle Q1
 	call	delay
 	bsf	LATH, 0, a
+	
+	; LED bulbs
+	call	num_to_bin
+	movwf	LATF, a
+	bsf	LATA, 4, a		; Toggle Q3
+	call	delay
+	bcf	LATA, 4, a
 	
 	bra loop
 	end
