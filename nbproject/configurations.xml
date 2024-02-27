@@ -17,7 +17,7 @@
     <logicalFolder name="SourceFiles"
                    displayName="Source Files"
                    projectFiles="true">
-      <itemPath>start.s.s</itemPath>
+      <itemPath>start.s</itemPath>
     </logicalFolder>
   </logicalFolder>
   <sourceRootList>
